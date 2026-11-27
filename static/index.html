@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FarmFinder — 지역·품목 대표 작목반 발굴 및 세부주소 탐색기</title>
+  <meta
+    name="description"
+    content="초기 조건(지역 + 품목)으로 대표 작목반·대표 농가를 먼저 발굴하고, 원하는 대상을 선택해 구글·네이버·GAP·aT FIS·도로명주소 API 꼬리물기로 세부주소와 전화번호를 특정합니다."
+  />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand-group">
+        <h1 class="brand-title">FarmFinder</h1>
+        <span class="brand-subtitle">지역·품목 대표 작목반 발굴 → 세부주소 꼬리물기 탐색</span>
+      </div>
+
+      <div class="topbar-actions">
+        <div id="api-status-strip" class="api-status-strip" aria-label="연동 API 상태"></div>
+        <a
+          id="open-google-sheet-link"
+          class="btn btn-secondary"
+          href="https://docs.google.com/spreadsheets/d/1T26pUoB3u77KnELhB536r8vhsthrhAf1X14igLfGZdA/edit"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          FarmFinder 시트 열기
+        </a>
+        <a id="download-csv-btn" class="btn btn-ghost" href="/api/export/csv">CSV 내려받기</a>
+        <button id="open-settings-btn" type="button" class="btn btn-secondary">API · 시트 설정</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- 좌측: 1단계(지역+품목 대표 발굴) & 2단계(직접 세부주소 찾기) 패널 -->
+    <aside>
+      <section class="panel" aria-labelledby="search-mode-heading">
+        <div class="panel-header">
+          <div>
+            <h2 id="search-mode-heading" class="panel-title">탐색 조건 설정</h2>
+            <p class="panel-caption">지역+품목으로 대표 조직·농가를 먼저 찾거나, 아는 이름으로 바로 주소를 추적합니다.</p>
+          </div>
+          <button id="reset-form-btn" type="button" class="btn btn-ghost">초기화</button>
+        </div>
+
+        <div class="stage-tabs" role="tablist" aria-label="탐색 단계 선택">
+          <button id="tab-stage1-btn" type="button" role="tab" aria-selected="true" class="stage-tab active">
+            1단계 · 지역 대표 찾기
+          </button>
+          <button id="tab-stage2-btn" type="button" role="tab" aria-selected="false" class="stage-tab">
+            2단계 · 세부주소 추적
+          </button>
+        </div>
+
+        <!-- [1단계 폼] 초기 조건: 어떤 지역에 어떤 품목인지 -->
+        <form id="discovery-form" class="field-grid">
+          <div>
+            <label class="field-label" for="disc-region"><span class="field-tag">#지역</span>조사할 시·군·읍·면 (필수)</label>
+            <input
+              id="disc-region"
+              class="input"
+              type="text"
+              placeholder="예: 경북 의성, 충남 논산, 전남 해남"
+            />
+          </div>
+
+          <div>
+            <label class="field-label" for="disc-crop-item"><span class="field-tag">#품목명</span>조사할 농작물 (필수)</label>
+            <input
+              id="disc-crop-item"
+              class="input"
+              type="text"
+              placeholder="예: 사과, 딸기, 고구마, 마늘, 배"
+            />
+          </div>
+
+          <div>
+            <label class="field-label" for="disc-focus-hint"><span class="field-tag">#관심조건</span>우선 찾고 싶은 대상 (선택)</label>
+            <input
+              id="disc-focus-hint"
+              class="input"
+              type="text"
+              placeholder="예: 공선출하회, 수출 작목반, GAP 선도농가"
+            />
+          </div>
+
+          <button id="start-discovery-btn" type="submit" class="btn btn-primary btn-block">
+            지역 대표 작목반 · 대표 농가 찾기
+          </button>
+        </form>
+
+        <!-- [2단계 폼] 특정 작목반·농가 세부주소 꼬리물기 추적 -->
+        <form id="investigate-form" class="field-grid" hidden>
+          <div class="field-row-2">
+            <div>
+              <label class="field-label" for="input-region"><span class="field-tag">#지역</span>권역 · 읍/면</label>
+              <input
+                id="input-region"
+                class="input"
+                type="text"
+                placeholder="예: 경북 의성 봉양면"
+              />
+            </div>
+            <div>
+              <label class="field-label" for="input-crop-item"><span class="field-tag">#품목명</span>재배 작물</label>
+              <input
+                id="input-crop-item"
+                class="input"
+                type="text"
+                placeholder="예: 사과, 딸기"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="field-label" for="input-crop-group"><span class="field-tag">#작목반명</span>작목반 · 출하회 · 단체명</label>
+            <input
+              id="input-crop-group"
+              class="input"
+              type="text"
+              placeholder="예: 봉양사과작목반, 광석딸기공선출하회"
+            />
+          </div>
+
+          <div class="field-row-2">
+            <div>
+              <label class="field-label" for="input-farm-person"><span class="field-tag">#농장/법인명</span>상호 · 농가명</label>
+              <input
+                id="input-farm-person"
+                class="input"
+                type="text"
+                placeholder="예: 해오름과수원"
+              />
+            </div>
+            <div>
+              <label class="field-label" for="input-representative"><span class="field-tag">#대표자</span>회장 · 농가주</label>
+              <input
+                id="input-representative"
+                class="input"
+                type="text"
+                placeholder="예: 김태훈"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="field-label" for="input-extra-clue"><span class="field-tag">#추가단서</span>기타 힌트 (선택)</label>
+            <textarea
+              id="input-extra-clue"
+              class="textarea"
+              rows="2"
+              placeholder="예: 신문기사 키워드, 친환경/GAP 여부, 마을 이름 등"
+            ></textarea>
+          </div>
+
+          <div class="search-options-row">
+            <label for="select-max-steps">최대 꼬리물기 깊이</label>
+            <select id="select-max-steps" class="select" style="width: auto; padding: 5px 28px 5px 10px;">
+              <option value="4">4단계 (빠른 탐색)</option>
+              <option value="6" selected>6단계 (권장 정밀 탐색)</option>
+              <option value="8">8단계 (심층 추적)</option>
+            </select>
+          </div>
+
+          <button id="start-investigate-btn" type="submit" class="btn btn-primary btn-block">
+            세부주소 · 연락처 꼬리물기 탐색 시작
+          </button>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="history-heading">
+        <div class="panel-header">
+          <h2 id="history-heading" class="panel-title">최근 탐색 · 저장 이력</h2>
+          <button id="refresh-history-btn" type="button" class="btn btn-ghost">새로고침</button>
+        </div>
+        <div id="history-list" class="history-list">
+          <p class="panel-caption">아직 저장된 탐색 기록이 없습니다.</p>
+        </div>
+      </section>
+    </aside>
+
+    <!-- 우측: 1단계 대표 발굴 목록 & 2단계 세부주소 추적 워크스페이스 -->
+    <section aria-live="polite">
+      <div id="mode-banner" class="mode-banner">
+        <span id="mode-banner-text">연동 상태를 확인하고 있습니다...</span>
+        <button id="banner-setup-btn" type="button" class="btn btn-ghost">키 입력하기</button>
+      </div>
+
+      <!-- 초기 안내 상태 -->
+      <div id="empty-workbench" class="panel empty-workbench">
+        <h3>초기 조건(#지역 + #품목)으로 대표 작목반·농가를 먼저 찾아보세요</h3>
+        <p style="margin: 0; font-size: 0.88rem;">
+          어떤 지역에 어떤 대표 작목반·선도농가가 있는지 먼저 목록으로 파악한 뒤,
+          원하는 대상을 골라 <strong>세부주소(~리·번지·도로명)와 전화번호</strong>를 꼬리물기로 찾아냅니다.
+        </p>
+        <div class="workflow-steps-preview">
+          <div class="wf-item">
+            <span class="wf-num">STAGE 1</span>
+            <span class="wf-label">지역 + 품목 입력</span>
+            <span class="wf-desc">구글·네이버·GAP·aT FIS에서 대표 작목반·선도농가 목록 발굴</span>
+          </div>
+          <div class="wf-item">
+            <span class="wf-num">SELECT</span>
+            <span class="wf-label">궁금한 대상 선택</span>
+            <span class="wf-desc">목록만 바로 시트에 저장하거나 특정 작목반·농가 선택</span>
+          </div>
+          <div class="wf-item">
+            <span class="wf-num">STAGE 2</span>
+            <span class="wf-label">꼬리물기 세부주소 추적</span>
+            <span class="wf-desc">~면 → ~리 → 번지·전화번호 원문 스캔 및 도로명주소 검증</span>
+          </div>
+          <div class="wf-item">
+            <span class="wf-num">EXPORT</span>
+            <span class="wf-label">FarmFinder 시트 기록</span>
+            <span class="wf-desc">검수 완료된 대표자·주소·연락처·출처를 Google 시트에 저장</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- [1단계 실행 로그] -->
+      <section id="discovery-trace-panel" class="panel" hidden>
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">1단계 지역 대표 작목반 · 농가 발굴 진행 상황</h2>
+            <p id="discovery-trace-status" class="panel-caption">조회 중...</p>
+          </div>
+        </div>
+        <div id="discovery-trace-list" class="trace-list"></div>
+      </section>
+
+      <!-- [1단계 결과] 지역 대표 작목반 · 대표 농가 목록 -->
+      <section id="discovery-panel" class="panel" hidden>
+        <div class="panel-header">
+          <div>
+            <h2 id="discovery-panel-title" class="panel-title">지역 대표 작목반 · 대표 농가 발굴 목록</h2>
+            <p class="panel-caption">
+              대표 현황만 필요하면 <strong>[요약 시트 저장]</strong>을, 상세 번지·연락처까지 찾으려면
+              <strong>[세부주소 찾기 →]</strong>를 누르세요.
+            </p>
+          </div>
+          <button id="toggle-discovery-body-btn" type="button" class="btn btn-ghost">접기/펼치기</button>
+        </div>
+
+        <div id="discovery-body">
+          <div id="discovery-overview" class="reasoning-box"></div>
+          <div id="discovery-filter-pills" class="filter-pills"></div>
+          <div id="discovery-list" class="leader-list"></div>
+        </div>
+      </section>
+
+      <!-- [2단계 활성 대상 컨텍스트 배너] -->
+      <div id="stage2-target-banner" class="target-context-bar" hidden>
+        <span id="stage2-target-text"></span>
+        <button id="back-to-discovery-btn" type="button" class="btn btn-ghost">↑ 1단계 대표 목록으로 이동</button>
+      </div>
+
+      <!-- 발견된 단서 체인 -->
+      <section id="clue-chain-panel" class="panel" hidden>
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">2단계 확보된 단서 흐름 (클릭 시 재탐색 힌트에 추가)</h2>
+          </div>
+        </div>
+        <div id="clue-chain-list" class="clue-chain-list"></div>
+      </section>
+
+      <!-- 실시간 꼬리물기 탐색 과정 -->
+      <section id="trace-panel" class="panel" hidden>
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">2단계 세부주소 꼬리물기 탐색 과정</h2>
+            <p id="trace-status-text" class="panel-caption">준비 중...</p>
+          </div>
+        </div>
+        <div id="trace-list" class="trace-list"></div>
+      </section>
+
+      <!-- 최종 검증 결과 및 Google Sheets 저장 폼 -->
+      <section id="result-panel" class="panel" hidden>
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">세부주소 교차검증 결과 · Google 시트 저장</h2>
+            <p class="panel-caption">내용을 검수·보정한 뒤 [FarmFinder 구글 시트에 행 추가] 버튼을 누르세요.</p>
+          </div>
+          <div id="result-badges" class="result-badges"></div>
+        </div>
+
+        <div id="result-reasoning" class="reasoning-box"></div>
+
+        <div class="result-edit-grid">
+          <div>
+            <label class="field-label" for="res-crop-group">작목반 / 생산자단체명</label>
+            <input id="res-crop-group" class="input" type="text" />
+          </div>
+          <div>
+            <label class="field-label" for="res-farm-name">농장명 / 영농법인명</label>
+            <input id="res-farm-name" class="input" type="text" />
+          </div>
+          <div>
+            <label class="field-label" for="res-representative">대표자 / 농가주 성명</label>
+            <input id="res-representative" class="input" type="text" />
+          </div>
+          <div>
+            <label class="field-label" for="res-crop-item">주요 품목</label>
+            <input id="res-crop-item" class="input" type="text" />
+          </div>
+
+          <div class="span-2">
+            <label class="field-label" for="res-road-address">도로명 세부주소 (행안부 검증)</label>
+            <div class="input-with-copy">
+              <input id="res-road-address" class="input mono" type="text" />
+              <button type="button" class="btn btn-ghost copy-btn" data-copy-target="res-road-address">복사</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="field-label" for="res-jibun-address">지번주소 (읍·면·리·번지)</label>
+            <div class="input-with-copy">
+              <input id="res-jibun-address" class="input mono" type="text" />
+              <button type="button" class="btn btn-ghost copy-btn" data-copy-target="res-jibun-address">복사</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="field-label" for="res-phone">전화번호 (블로그 · 법인DB 확인)</label>
+            <div class="input-with-copy">
+              <input id="res-phone" class="input mono" type="text" placeholder="미확인" />
+              <button type="button" class="btn btn-ghost copy-btn" data-copy-target="res-phone">복사</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="field-label" for="res-postal-code">우편번호</label>
+            <input id="res-postal-code" class="input mono" type="text" />
+          </div>
+
+          <div>
+            <label class="field-label" for="res-memo">검수 메모 (시트 비고란에 함께 저장)</label>
+            <input id="res-memo" class="input" type="text" placeholder="예: 공선출하회 총무 연락처 확인됨" />
+          </div>
+        </div>
+
+        <div style="margin-top: 16px;">
+          <span class="field-label">근거 출처 링크</span>
+          <div id="result-sources" class="source-list"></div>
+        </div>
+
+        <div class="action-footer">
+          <span id="save-feedback-text" class="panel-caption"></span>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button id="save-local-only-btn" type="button" class="btn btn-secondary">로컬 이력에만 수정 반영</button>
+            <button id="save-to-sheet-btn" type="button" class="btn btn-primary">
+              FarmFinder 구글 시트에 행 추가
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 추가 후보 목록 -->
+      <section id="candidates-panel" class="panel" hidden>
+        <div class="panel-header">
+          <h2 class="panel-title">함께 포착된 연관 농가 · 법인 후보</h2>
+        </div>
+        <div id="candidates-list"></div>
+      </section>
+
+      <!-- 단서 추가 연속 좁혀가기 패널 -->
+      <section id="narrow-panel" class="panel" hidden>
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">새 단서로 더 좁혀서 재탐색 (연속 꼬리물기)</h2>
+            <p class="panel-caption">
+              중간에 확인된 농장명, 마을(~리) 이름, 대표자 성명 등을 추가해 한 단계 더 깊게 파고듭니다.
+            </p>
+          </div>
+        </div>
+        <div id="narrow-suggestions" class="preset-bar"></div>
+        <div class="narrow-bar">
+          <input
+            id="narrow-extra-input"
+            class="input"
+            type="text"
+            placeholder="예: 농장명이 '청송꿀사과농원'인 것 같아 / 현동면 도평리 쪽 위주로 다시 찾아줘"
+          />
+          <button id="run-narrow-btn" type="button" class="btn btn-secondary">
+            이 단서 더해서 재탐색
+          </button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- API 키 & Google Sheets 설정 모달 -->
+  <div id="settings-modal" class="modal-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="modal-card">
+      <div class="panel-header">
+        <div>
+          <h2 id="settings-modal-title" class="panel-title">API 키 및 FarmFinder 구글 시트 설정</h2>
+          <p class="panel-caption">입력한 값은 서버의 로컬 <code>.env</code> 파일에만 안전하게 저장됩니다. 비워두면 기존 저장된 키가 유지됩니다.</p>
+        </div>
+        <button id="close-settings-btn" type="button" class="btn btn-ghost">닫기</button>
+      </div>
+
+      <form id="settings-form" class="field-grid">
+        <div class="field-row-2">
+          <div>
+            <label class="field-label" for="cfg-gemini-key">1. Gemini API Key (추론 + 구글 웹 검색)</label>
+            <input id="cfg-gemini-key" class="input mono" type="password" placeholder="AIza..." autocomplete="off" />
+          </div>
+          <div>
+            <label class="field-label" for="cfg-gemini-model">Gemini 모델명</label>
+            <input id="cfg-gemini-model" class="input mono" type="text" value="gemini-2.5-flash" />
+          </div>
+        </div>
+
+        <div class="field-row-2">
+          <div>
+            <label class="field-label" for="cfg-naver-id">2. 네이버 검색 Client ID</label>
+            <input id="cfg-naver-id" class="input mono" type="text" placeholder="네이버 개발자센터 Client ID" autocomplete="off" />
+          </div>
+          <div>
+            <label class="field-label" for="cfg-naver-secret">네이버 검색 Client Secret</label>
+            <input id="cfg-naver-secret" class="input mono" type="password" placeholder="Client Secret" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="field-row-2">
+          <div>
+            <label class="field-label" for="cfg-gap-key">3. 공공데이터포털 GAP OpenAPI 인증키</label>
+            <input id="cfg-gap-key" class="input mono" type="password" placeholder="일반 인증키 (Encoding/Decoding 모두 가능)" autocomplete="off" />
+          </div>
+          <div>
+            <label class="field-label" for="cfg-juso-key">4. 행안부 도로명주소 API 승인키</label>
+            <input id="cfg-juso-key" class="input mono" type="password" placeholder="devU01TX0FVVE..." autocomplete="off" />
+          </div>
+        </div>
+
+        <div>
+          <label class="field-label" for="cfg-serper-key">(선택) Serper.dev API Key — 무료 티어에서 구글 검색 보강이 필요할 때</label>
+          <input id="cfg-serper-key" class="input mono" type="password" placeholder="선택 사항" autocomplete="off" />
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-hairline); margin: 6px 0;" />
+
+        <div class="field-row-2">
+          <div>
+            <label class="field-label" for="cfg-sheet-id">Google Sheet ID (기본: 연결된 FarmFinder 시트)</label>
+            <input id="cfg-sheet-id" class="input mono" type="text" value="1T26pUoB3u77KnELhB536r8vhsthrhAf1X14igLfGZdA" />
+          </div>
+          <div>
+            <label class="field-label" for="cfg-sheet-tab">시트 탭 이름</label>
+            <input id="cfg-sheet-tab" class="input" type="text" value="탐색결과" />
+          </div>
+        </div>
+
+        <div>
+          <label class="field-label" for="cfg-webhook-url">[시트 연동 방법 A - 가장 간편] Google Apps Script 웹 앱 URL</label>
+          <input
+            id="cfg-webhook-url"
+            class="input mono"
+            type="text"
+            placeholder="https://script.google.com/macros/s/.../exec"
+          />
+          <details style="margin-top: 6px; font-size: 0.8rem; color: var(--text-secondary);">
+            <summary style="cursor: pointer; font-weight: 600;">1분 만에 FarmFinder 구글 시트 자동 기록 연결하는 법 보기</summary>
+            <ol style="margin: 8px 0 6px; padding-left: 18px;">
+              <li>상단 <strong>[FarmFinder 시트 열기]</strong> 클릭 → 메뉴 <strong>확장 프로그램 &gt; Apps Script</strong> 클릭</li>
+              <li>아래 코드를 붙여넣고 우측 상단 <strong>배포 &gt; 새 배포 &gt; 유형: 웹 앱</strong> 선택 (액세스 권한: <em>모든 사용자</em>)</li>
+              <li>생성된 웹 앱 URL을 위 입력칸에 붙여넣고 저장하면 즉시 시트에 자동 기록됩니다.</li>
+            </ol>
+            <pre id="apps-script-snippet" class="code-block"></pre>
+            <button id="copy-apps-script-btn" type="button" class="btn btn-ghost">Apps Script 코드 복사</button>
+          </details>
+        </div>
+
+        <div>
+          <label class="field-label" for="cfg-sa-file">[시트 연동 방법 B] Google Cloud 서비스 계정 JSON 파일 경로 (선택)</label>
+          <input id="cfg-sa-file" class="input mono" type="text" placeholder="예: service_account.json" />
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-hairline); margin: 6px 0;" />
+
+        <div>
+          <span class="field-label">(선택) GAP / aT FIS 대용량 CSV 파일 로컬 등록 — 등록 시 0.1초 초고속 검색 병행</span>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <select id="csv-upload-kind" class="select" style="width: auto;">
+              <option value="gap">GAP 인증농가 CSV</option>
+              <option value="atfis">aT FIS 생산자 CSV</option>
+            </select>
+            <input id="csv-upload-file" type="file" accept=".csv" style="font-size: 0.82rem;" />
+            <button id="upload-csv-btn" type="button" class="btn btn-ghost">CSV 업로드</button>
+          </div>
+          <p id="local-csv-list-text" class="panel-caption"></p>
+        </div>
+
+        <div class="action-footer" style="margin-top: 8px;">
+          <span></span>
+          <div style="display: flex; gap: 8px;">
+            <button id="cancel-settings-btn" type="button" class="btn btn-secondary">취소</button>
+            <button id="save-settings-btn" type="submit" class="btn btn-primary">설정 저장 및 적용</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Environment & Secrets
+.env
+*.pem
+*service-account*.json
+*credentials*.json
+
+# Local runtime data & caches
+data/*.db
+data/*.db-journal
+data/*.csv
+data/*.xlsx
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments & OS files
+.venv/
+venv/
+ENV/
+.DS_Store
+Thumbs.db
+.pytest_cache/
